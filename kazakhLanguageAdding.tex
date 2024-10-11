@@ -1,0 +1,425 @@
+\documentclass{beamer}
+\usetheme{Boadilla}
+
+\title{Reproducing FastText Language Identification}
+\subtitle{Including Kazakh Language Support}
+\author{Ruslan Khissamiyev}
+\institute{Macquarie University}
+\date{\today}
+
+\usepackage{listings}  % For code listings
+\usepackage{hyperref}  % For hyperlinks
+\usepackage{graphicx}  % For including images
+
+% Customize listings
+\lstset{
+    basicstyle=\ttfamily\small,  % Typewriter font for code
+    breaklines=true,              % Wrap long lines
+    keywordstyle=\color{blue},    % Style for keywords
+    commentstyle=\color{green},   % Style for comments
+    stringstyle=\color{red},      % Style for strings
+    frame=single,                 % Add frame around the code
+    showstringspaces=false,       % Do not show spaces in strings
+}
+
+\begin{document}
+
+% Title slide
+\begin{frame}
+    \titlepage
+\end{frame}
+
+% Table of contents
+\begin{frame}
+    \frametitle{Outline}
+    \tableofcontents
+\end{frame}
+
+\section{Introduction}
+\begin{frame}
+    \frametitle{Introduction}
+    In this presentation, we describe the reproduction of the language identification task using fastText, with an extension to include the Kazakh language. This work follows the tutorial by Edouard Grave, based on the original paper "Bag of Tricks for Efficient Text Classification" by Joulin, Grave, Bojanowski, and Mikolov (2017).
+\end{frame}
+
+\section{Downloading and Building fastText}
+
+\begin{frame}[fragile]
+    \frametitle{Downloading fastText}
+    We downloaded the fastText library version 0.9.2 from GitHub:
+    \begin{lstlisting}[language=bash]
+    # Downloading fastText
+    !wget https://github.com/facebookresearch/fastText/archive/v0.9.2.zip
+    !unzip v0.9.2.zip
+    \end{lstlisting}
+    \textbf{Output} (truncated for brevity):
+    \begin{lstlisting}[basicstyle=\ttfamily\scriptsize]
+    creating: fastText-0.9.2/
+    creating: fastText-0.9.2/crawl/
+    inflating: fastText-0.9.2/crawl/README.md
+    ...
+    \end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Building fastText}
+    We moved to the fastText directory and built it using \texttt{make}:
+    \begin{lstlisting}[language=bash]
+    # Moving to the fastText directory and building it
+    %cd fastText-0.9.2
+    !make
+    \end{lstlisting}
+    \textbf{Output} (truncated for brevity):
+    \begin{lstlisting}[basicstyle=\ttfamily\scriptsize]
+    c++ -pthread -std=c++11 -march=native -O3 -funroll-loops -DNDEBUG -c src/args.cc
+    ...
+    \end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Testing fastText}
+    After building, we tested the fastText executable to ensure it was working:
+    \begin{lstlisting}[language=bash]
+    # Testing if fastText is working
+    !./fasttext
+    \end{lstlisting}
+    \textbf{Output}:
+    \begin{lstlisting}[basicstyle=\ttfamily\scriptsize]
+    usage: fasttext <command> <args>
+
+    The commands supported by fasttext are:
+
+      supervised              train a supervised classifier
+      quantize                quantize a model to reduce the memory usage
+      test                    evaluate a supervised classifier
+      test-label              print labels with precision and recall scores
+      predict                 predict most likely labels
+      predict-prob            predict most likely labels with probabilities
+      skipgram                train a skipgram model
+      cbow                    train a cbow model
+      ...
+    \end{lstlisting}
+\end{frame}
+
+\section{Downloading and Preparing the Data}
+
+\begin{frame}[fragile]
+    \frametitle{Downloading the Data}
+    We downloaded the sentences dataset from Tatoeba:
+    \begin{lstlisting}[language=bash]
+    # Go back to the parent directory
+    %cd ..
+
+    # Downloading files from Tatoeba
+    !wget http://downloads.tatoeba.org/exports/sentences.tar.bz2
+    !bunzip2 sentences.tar.bz2
+    !tar xvf sentences.tar
+    \end{lstlisting}
+    \textbf{Output} (truncated for brevity):
+    \begin{lstlisting}[basicstyle=\ttfamily\scriptsize]
+    --2024-10-09 10:18:21--  https://downloads.tatoeba.org/exports/sentences.tar.bz2
+    Resolving downloads.tatoeba.org (downloads.tatoeba.org)... 94.130.77.194
+    Connecting to downloads.tatoeba.org (downloads.tatoeba.org)|94.130.77.194|:443... connected.
+    HTTP request sent, awaiting response... 200 OK
+    Length: 195102325 (186M) [application/octet-stream]
+    Saving to: 'sentences.tar.bz2'
+    ...
+    x sentences.csv
+    \end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Preparing the Data}
+    We prepared the data for fastText by reformatting and shuffling it:
+    \begin{lstlisting}[language=bash]
+    # Preparing the data for fastText
+    !awk -F"\t" '{print "__label__"$2" "$3}' sentences.csv | shuf > all.txt
+    \end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Splitting the Data}
+    We split the data into training and validation sets:
+    \begin{lstlisting}[language=bash]
+    # Splitting the data into training and testing sets
+    !head -n 10000 all.txt > valid.txt
+    !tail -n +10001 all.txt > train.txt
+    \end{lstlisting}
+\end{frame}
+
+\section{Training the Initial Model}
+
+\begin{frame}[fragile]
+    \frametitle{Training the Initial Model}
+    We trained the initial model:
+    \begin{lstlisting}[language=bash]
+    # Training the model
+    !fastText-0.9.2/fasttext supervised -input train.txt -output langdetect -dim 16
+    \end{lstlisting}
+    \textbf{Output}:
+    \begin{lstlisting}[basicstyle=\ttfamily\scriptsize]
+    Read 100M words
+    Number of words:  4556997
+    Number of labels: 420
+    Progress: 100.0%  words/sec/thread: 253825  lr: 0.000000  avg.loss: 0.138132  ETA: 0h 0m 0s
+    \end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Evaluating the Initial Model}
+    We tested the model:
+    \begin{lstlisting}[language=bash]
+    # Testing the model
+    !fastText-0.9.2/fasttext test langdetect.bin valid.txt
+    \end{lstlisting}
+    \textbf{Results}:
+    \begin{lstlisting}
+    N       10000
+    P@1     0.953
+    R@1     0.953
+    \end{lstlisting}
+    The initial model achieved an accuracy of approximately 95.3\%.
+\end{frame}
+
+\section{Kazakh Language Overview}
+
+\begin{frame}
+    \frametitle{Morphological Features of Kazakh Language}
+    \begin{itemize}
+        \item \textbf{Language Family}: Kazakh is a Turkic language, part of the Altaic family.
+        \item \textbf{Agglutinative Morphology}:
+        \begin{itemize}
+            \item Words are formed by adding a sequence of suffixes to roots.
+            \item Each suffix conveys specific grammatical meanings (e.g., tense, case, number).
+        \end{itemize}
+        \item \textbf{Vowel Harmony}:
+        \begin{itemize}
+            \item Vowels within a word harmonize to be front or back vowels.
+            \item Influences suffix selection and word formation.
+        \end{itemize}
+        \item \textbf{Rich Inflectional System}:
+        \begin{itemize}
+            \item Nouns inflect for multiple cases (e.g., nominative, genitive, dative).
+            \item Verbs conjugate for tense, mood, aspect, person, and number.
+        \end{itemize}
+        \item \textbf{Comparison to English}:
+        \begin{itemize}
+            \item English relies more on word order and auxiliary words.
+            \item Kazakh uses suffixes to express grammatical relationships.
+        \end{itemize}
+        \item \textbf{Implications for NLP and fastText}:
+        \begin{itemize}
+            \item Models must handle complex morphological structures.
+            \item Importance of subword features and character n-grams.
+        \end{itemize}
+    \end{itemize}
+\end{frame}
+
+\begin{frame}
+    \frametitle{Utility of Adding Kazakh Language Support}
+    \begin{itemize}
+        \item \textbf{Supporting Low-Resource Languages}:
+        \begin{itemize}
+            \item Addresses the gap in NLP resources for Kazakh.
+            \item Promotes linguistic diversity in computational models.
+        \end{itemize}
+        \item \textbf{Significant Speaker Base}:
+        \begin{itemize}
+            \item Over 13 million native speakers worldwide.
+            \item Official language of Kazakhstan with growing digital presence.
+        \end{itemize}
+        \item \textbf{Academic Importance}:
+        \begin{itemize}
+            \item Enables research on agglutinative and morphology-rich languages.
+            \item Provides insights into handling complex linguistic features in NLP.
+        \end{itemize}
+        \item \textbf{Practical Applications}:
+        \begin{itemize}
+            \item Enhances language detection and processing in multilingual settings.
+            \item Supports development of educational tools and resources for Kazakh speakers.
+        \end{itemize}
+        \item \textbf{Improving Multilingual Models}:
+        \begin{itemize}
+            \item Increases robustness and generalization of NLP models.
+            \item Facilitates better cross-lingual understanding and transfer learning.
+        \end{itemize}
+        \item \textbf{Contributing to Language Preservation}:
+        \begin{itemize}
+            \item Aids in digital preservation efforts of the Kazakh language.
+            \item Encourages creation of digital content and resources in Kazakh.
+        \end{itemize}
+    \end{itemize}
+\end{frame}
+
+\section{Adding Kazakh Language Support}
+
+\begin{frame}[fragile]
+    \frametitle{Including Kazakh Language}
+    We extended the model to include the Kazakh language (ISO code: \texttt{kaz}):
+    \begin{lstlisting}[language=bash]
+    # Checking the number of Kazakh sentences
+    !awk -F"\t" '$2 == "kaz"' sentences.csv | wc -l
+    \end{lstlisting}
+    \textbf{Output}:
+    \begin{lstlisting}
+     4335
+    \end{lstlisting}
+    We have 4,335 Kazakh sentences available.
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Preparing Kazakh Sentences}
+    We extracted Kazakh sentences and appended them to the dataset:
+    \begin{lstlisting}[language=bash]
+    # Extracting Kazakh sentences
+    !awk -F"\t" '$2 == "kaz" {print "__label__"$2" "$3}' sentences.csv > kazakh_sentences.txt
+
+    # Appending Kazakh sentences to the dataset
+    !cat kazakh_sentences.txt >> all.txt
+
+    # Shuffling the dataset
+    !shuf all.txt -o all_shuffled.txt
+    \end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Splitting the Updated Dataset}
+    We split the updated dataset into training and validation sets:
+    \begin{lstlisting}[language=bash]
+    # Use 10,000 samples for validation
+    !head -n 10000 all_shuffled.txt > valid.txt
+
+    # Use the rest for training
+    !tail -n +10001 all_shuffled.txt > train.txt
+    \end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Retraining the Model with Kazakh}
+    We retrained the model including Kazakh sentences:
+    \begin{lstlisting}[language=bash]
+    # Retraining the model with Kazakh sentences
+    !fastText-0.9.2/fasttext supervised -input train.txt -output langdetect -dim 16
+    \end{lstlisting}
+    \textbf{Output}:
+    \begin{lstlisting}[basicstyle=\ttfamily\scriptsize]
+    Read 100M words
+    Number of words:  4556997
+    Number of labels: 420
+    Progress: 100.0%  words/sec/thread: 191641  lr: 0.000000  avg.loss: 0.167677  ETA: 0h 0m 0s
+    \end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Evaluating the Updated Model}
+    We tested the updated model on the validation set:
+    \begin{lstlisting}[language=bash]
+    # Testing the model on the validation set
+    !fastText-0.9.2/fasttext test langdetect.bin valid.txt
+    \end{lstlisting}
+    \textbf{Results}:
+    \begin{lstlisting}
+    N       10000
+    P@1     0.954
+    R@1     0.954
+    \end{lstlisting}
+    The overall accuracy remained consistent at approximately 95.4\%.
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Evaluating on Kazakh Sentences}
+    We specifically assessed the model on Kazakh sentences:
+    \begin{lstlisting}[language=bash]
+    # Preparing Kazakh test set
+    !awk -F"\t" '$2 == "kaz" {print "__label__"$2" "$3}' sentences.csv | shuf > kazakh_test.txt
+
+    # Testing the model on Kazakh sentences
+    !fastText-0.9.2/fasttext test langdetect.bin kazakh_test.txt
+    \end{lstlisting}
+    \textbf{Results}:
+    \begin{lstlisting}
+    N       4335
+    P@1     1
+    R@1     1
+    \end{lstlisting}
+    The model achieved 100\% accuracy on Kazakh sentences.
+\end{frame}
+
+\section{Improving the Model}
+
+\begin{frame}[fragile]
+    \frametitle{Improving the Model with Hyperparameter Tuning}
+    To enhance the model's performance, especially on the validation set, we experimented with hyperparameter tuning:
+    \begin{itemize}
+        \item \textbf{Increased Number of Epochs}:
+        \begin{itemize}
+            \item Trained the model for 15 epochs to allow it to learn better representations.
+        \end{itemize}
+        \item \textbf{Used Hierarchical Softmax}:
+        \begin{itemize}
+            \item Changed the loss function to hierarchical softmax for efficiency.
+        \end{itemize}
+        \item \textbf{Adjusted Learning Rate}:
+        \begin{itemize}
+            \item Increased the learning rate to 1.0 for faster convergence.
+        \end{itemize}
+        \item \textbf{Included Subword Features}:
+        \begin{itemize}
+            \item Set \texttt{minn} and \texttt{maxn} to use character n-grams.
+        \end{itemize}
+        \item \textbf{Used Word n-grams}:
+        \begin{itemize}
+            \item Included word bigrams to capture local context.
+        \end{itemize}
+    \end{itemize}
+    \textbf{Command}:
+    \begin{lstlisting}[language=bash]
+    # Retraining the model with all improvements applied
+    !fastText-0.9.2/fasttext supervised \
+    -input train.txt \
+    -output langdetect \
+    -dim 16 \
+    -epoch 15 \
+    -lr 1.0 \
+    -loss hs \
+    -minn 2 -maxn 4 \
+    -wordNgrams 2
+    \end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Evaluating the Improved Model}
+    We tested the improved model on both the validation set and the Kazakh test set.
+    \begin{itemize}
+        \item \textbf{Validation Set Results}:
+        \begin{lstlisting}
+    N       10000
+    P@1     0.976
+    R@1     0.976
+        \end{lstlisting}
+        \item \textbf{Kazakh Test Set Results}:
+        \begin{lstlisting}
+    N       4335
+    P@1     1
+    R@1     1
+        \end{lstlisting}
+        \item \textbf{Observations}:
+        \begin{itemize}
+            \item Overall validation accuracy improved from 95.4\% to 97.6\%.
+            \item Accuracy on Kazakh sentences remained at 100\%.
+        \end{itemize}
+    \end{itemize}
+\end{frame}
+
+\section{Conclusion}
+
+\begin{frame}
+    \frametitle{Conclusion}
+    By extending the fastText language identification model to include Kazakh and applying hyperparameter tuning, we achieved:
+    \begin{itemize}
+        \item Improved overall validation accuracy to 97.6\%.
+        \item Maintained high accuracy on Kazakh sentences at 100\%.
+        \item Demonstrated the effectiveness of hyperparameter tuning in enhancing model performance.
+    \end{itemize}
+\end{frame}
+
+\end{document}

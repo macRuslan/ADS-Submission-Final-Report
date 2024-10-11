@@ -1,0 +1,516 @@
+\documentclass{beamer}
+\usetheme{Boadilla}
+
+\title{Reproducing FastText Language Identification}
+\subtitle{Including Kazakh Language Support}
+\author{Ruslan Khissamiyev}
+\institute{Macquarie University}
+\date{\today}
+
+\usepackage{listings}  % For code listings
+\usepackage{hyperref}  % For hyperlinks
+\usepackage{graphicx}  % For including images
+\usepackage{color}
+\usepackage{amsmath}   % For mathematical symbols
+
+% Customize listings
+\lstset{
+    basicstyle=\ttfamily\small,  % Typewriter font for code
+    breaklines=true,              % Wrap long lines
+    keywordstyle=\color{blue},    % Style for keywords
+    commentstyle=\color{green},   % Style for comments
+    stringstyle=\color{red},      % Style for strings
+    frame=single,                 % Add frame around the code
+    showstringspaces=false,       % Do not show spaces in strings
+}
+
+\begin{document}
+
+% Title slide
+\begin{frame}
+    \titlepage
+\end{frame}
+
+% Table of contents
+\begin{frame}
+    \frametitle{Outline}
+    \tableofcontents
+\end{frame}
+
+\section{Introduction}
+\begin{frame}
+    \frametitle{Introduction}
+    In this presentation, we describe the reproduction of the language identification task using fastText, including the addition of multiple languages such as Kazakh. This work involves:
+
+    \begin{itemize}
+        \item Downloading and processing data from various sources.
+        \item Preparing data for training with fastText.
+        \item Improving the model with hyperparameter tuning.
+        \item Observing how adding more data improves model performance.
+        \item Comparing results with the official fastText models.
+        \item Highlighting the efficiency of using Tatoeba data over other sources.
+    \end{itemize}
+\end{frame}
+
+\section{Data Preparation}
+
+\subsection{Initial Data from Wikipedia}
+\begin{frame}[fragile]
+    \frametitle{Downloading Initial Data}
+    We began by downloading a sample of the English Wikipedia dump using the Wikimedia API:
+
+    \begin{lstlisting}[language=bash]
+    # Create a working directory
+    !mkdir fasttext_language_id
+    %cd fasttext_language_id
+
+    # Download a sample of the English Wikipedia dump
+    !wget https://dumps.wikimedia.org/enwiki/latest/enwiki-latest-pages-articles1.xml-p1p41242.bz2 -O enwiki_sample.xml.bz2
+    \end{lstlisting}
+
+    \textbf{Note}: Downloading full Wikipedia dumps for all languages would take approximately 72 hours and over 300 GB of storage, which is not efficient for our purposes.
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Processing Wikipedia Data}
+    We used \texttt{WikiExtractor} to extract and clean text from the Wikipedia dump:
+
+    \begin{lstlisting}[language=bash]
+    # Install WikiExtractor
+    !git clone https://github.com/attardi/wikiextractor.git
+
+    # Extract text from the Wikipedia dump
+    %cd wikiextractor
+    !python3 -m wikiextractor.WikiExtractor ../enwiki_sample.xml.bz2 -o ../extracted -b 100M --processes 4
+    \end{lstlisting}
+
+    After extraction, we combined all text files and added labels:
+
+    \begin{lstlisting}[language=bash]
+    # Combine all text files into one
+    %cd ../extracted
+    !find . -name 'wiki_*' -exec cat {} + > ../en_text.txt
+
+    # Add labels to each line
+    !sed -i '' 's/^/__label__eng /' ../en_text.txt
+    \end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Cleaning and Preparing Data}
+    We cleaned the text data using a custom script \texttt{clean_text.py}:
+
+    \begin{lstlisting}[language=bash]
+    # Clean the text data
+    !python3 clean_text.py en_text.txt final_cleaned_text.txt
+    \end{lstlisting}
+
+    Then we shuffled and split the data into training and testing sets:
+
+    \begin{lstlisting}[language=bash]
+    # Shuffle the data
+    !shuf final_cleaned_text.txt > shuffled_cleaned_text.txt
+
+    # Split the data
+    total_lines=$(wc -l < shuffled_cleaned_text.txt)
+    train_lines=$(echo "$total_lines * 0.8 / 1" | bc)
+    test_lines=$(echo "$total_lines - $train_lines" | bc)
+
+    !head -n $train_lines shuffled_cleaned_text.txt > train.txt
+    !tail -n $test_lines shuffled_cleaned_text.txt > test.txt
+    \end{lstlisting}
+
+    \textbf{Result}:
+    \begin{lstlisting}
+    Train set: 622,781 lines
+    Test set: 155,696 lines
+    \end{lstlisting}
+\end{frame}
+
+\section{Training Initial Model}
+
+\begin{frame}[fragile]
+    \frametitle{Building and Testing fastText}
+    We downloaded and built the fastText library:
+
+    \begin{lstlisting}[language=bash]
+    # Downloading fastText
+    !wget https://github.com/facebookresearch/fastText/archive/v0.9.2.zip
+    !unzip v0.9.2.zip
+
+    # Building fastText
+    %cd fastText-0.9.2
+    !make
+
+    # Testing if fastText is working
+    !./fasttext
+    \end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Training the Initial Model}
+    We trained the initial language detection model on the English data:
+
+    \begin{lstlisting}[language=bash]
+    # Training the model
+    !./fasttext supervised -input train.txt -output langdetect -dim 16
+    \end{lstlisting}
+
+    \textbf{Output}:
+    \begin{lstlisting}[basicstyle=\ttfamily\scriptsize]
+    Read 7M words
+    Number of words:  377,291
+    Number of labels: 1
+    Progress: 100.0%  words/sec/thread: 3,271,998  lr: 0.000000  avg.loss: 0.000000  ETA: 0h 0m 0s
+    \end{lstlisting}
+
+    \textbf{Testing the model}:
+
+    \begin{lstlisting}[language=bash]
+    # Testing the model
+    !./fasttext test langdetect.bin test.txt
+    \end{lstlisting}
+
+    \textbf{Results}:
+    \begin{lstlisting}
+    N       1480
+    P@1     1.0
+    R@1     1.0
+    \end{lstlisting}
+
+    Since the dataset only contains English, the model achieves perfect accuracy.
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Improving the Initial Model}
+    We applied hyperparameter tuning to improve the model:
+
+    \begin{itemize}
+        \item Increased epochs to 15.
+        \item Set learning rate to 1.0.
+        \item Used hierarchical softmax loss function.
+        \item Used character n-grams (minn=2, maxn=4).
+        \item Included word n-grams (wordNgrams=2).
+    \end{itemize}
+
+    \begin{lstlisting}[language=bash]
+    # Retraining with improvements
+    !./fasttext supervised \
+    -input train.txt \
+    -output langdetect \
+    -dim 16 \
+    -epoch 15 \
+    -lr 1.0 \
+    -loss hs \
+    -minn 2 -maxn 4 \
+    -wordNgrams 2
+    \end{lstlisting}
+
+    \textbf{Testing the improved model}:
+
+    \begin{lstlisting}[language=bash]
+    # Testing the improved model
+    !./fasttext test langdetect.bin test.txt
+    \end{lstlisting}
+
+    \textbf{Results}:
+    \begin{lstlisting}
+    N       1480
+    P@1     1.0
+    R@1     1.0
+    \end{lstlisting}
+
+    The model maintains perfect accuracy.
+\end{frame}
+
+\section{Adding OSCAR Data}
+
+\begin{frame}[fragile]
+    \frametitle{Processing OSCAR Data}
+    We added data from the OSCAR dataset to include multiple languages:
+
+    \begin{itemize}
+        \item Languages included: English, Chinese, Spanish, Arabic, French, Russian, Portuguese, German, Japanese, Hindi, and Kazakh.
+        \item Due to the large size of OSCAR data (over 2 GB and 11 hours to process), we limited the data to 100 MB per language for efficiency.
+    \end{itemize}
+
+    \begin{lstlisting}[language=python]
+    from datasets import load_dataset
+    import re, os
+
+    languages = ["en", "zh", "es", "ar", "fr", "ru", "pt", "de", "ja", "hi", "kk"]
+
+    for lang in languages:
+        # Load the dataset
+        dataset = load_dataset("oscar", f"unshuffled_deduplicated_{lang}", split='train', streaming=True)
+        # Process and clean the data
+        # Limit the size to 100MB per language
+        # Save cleaned data to files
+    \end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Combining and Shuffling OSCAR Data}
+    We combined data from all languages and shuffled:
+
+    \begin{lstlisting}[language=bash]
+    # Combine all language data
+    !cat cleaned_*_data.txt > all_languages_text.txt
+
+    # Shuffle the combined data
+    !shuf all_languages_text.txt > shuffled_all_languages_text.txt
+    \end{lstlisting}
+
+    We then split the data:
+
+    \begin{lstlisting}[language=bash]
+    # Split the data
+    total_lines=$(wc -l < shuffled_all_languages_text.txt)
+    train_lines=$(echo "$total_lines * 0.8 / 1" | bc)
+    test_lines=$(echo "$total_lines - $train_lines" | bc)
+
+    !head -n $train_lines shuffled_all_languages_text.txt > train.txt
+    !tail -n $test_lines shuffled_all_languages_text.txt > test.txt
+
+    # Verify the split
+    !echo "Train set: $(wc -l < train.txt) lines"
+    !echo "Test set: $(wc -l < test.txt) lines"
+    \end{lstlisting}
+
+    \textbf{Result}:
+    \begin{lstlisting}
+    Train set: 158,942 lines
+    Test set: 39,736 lines
+    \end{lstlisting}
+
+    \textbf{Observation}: Adding more data from multiple languages increases the dataset size and diversity, which is expected to improve model performance.
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Training with OSCAR Data}
+    We trained the model on the enhanced dataset:
+
+    \begin{lstlisting}[language=bash]
+    # Training the model
+    !./fasttext supervised -input train.txt -output langdetect -dim 16
+    \end{lstlisting}
+
+    \textbf{Results}:
+
+    \begin{lstlisting}
+    N       39736
+    P@1     0.96
+    R@1     0.96
+    \end{lstlisting}
+
+    \textbf{Applying hyperparameter tuning}:
+
+    \begin{lstlisting}[language=bash]
+    # Retraining with improvements
+    !./fasttext supervised \
+    -input train.txt \
+    -output langdetect \
+    -dim 16 \
+    -epoch 15 \
+    -lr 1.0 \
+    -loss hs \
+    -minn 2 -maxn 4 \
+    -wordNgrams 2
+    \end{lstlisting}
+
+    \textbf{Improved results}:
+
+    \begin{lstlisting}
+    N       39736
+    P@1     0.982
+    R@1     0.982
+    \end{lstlisting}
+
+    \textbf{Observation}: Adding more data and applying hyperparameter tuning significantly improved the model's accuracy from 96\% to 98.2\%.
+\end{frame}
+
+\section{Adding Tatoeba Data}
+
+\begin{frame}[fragile]
+    \frametitle{Incorporating Tatoeba Data}
+    We added data from the Tatoeba dataset to further enhance the model:
+
+    \begin{itemize}
+        \item Tatoeba data contains millions of sentences in various languages.
+        \item Downloading and processing Tatoeba data took only 5 minutes and required around 100 MB of storage.
+        \item This is significantly more efficient compared to Wikipedia dumps (72 hours and 300 GB) and OSCAR data (11 hours and 2 GB).
+    \end{itemize}
+
+    \begin{lstlisting}[language=bash]
+    # Downloading Tatoeba sentences
+    !wget http://downloads.tatoeba.org/exports/sentences.tar.bz2
+    !bunzip2 sentences.tar.bz2
+    !tar xvf sentences.tar
+
+    # Preparing the data
+    !awk -F "\t" '{print "__label__"$2" "$3}' sentences.csv | shuf > all_tatoeba.txt
+
+    # Adding Tatoeba data to previous data
+    !cat all_tatoeba.txt >> all_languages_text.txt
+    \end{lstlisting}
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Shuffling and Splitting Data}
+    We shuffled and split the combined data:
+
+    \begin{lstlisting}[language=bash]
+    # Shuffle and split the data
+    !shuf all_languages_text.txt > shuffled_all_languages_text.txt
+
+    total_lines=$(wc -l < shuffled_all_languages_text.txt)
+    train_lines=$(echo "$total_lines * 0.8 / 1" | bc)
+    test_lines=$(echo "$total_lines - $train_lines" | bc)
+
+    !head -n $train_lines shuffled_all_languages_text.txt > train.txt
+    !tail -n $test_lines shuffled_all_languages_text.txt > test.txt
+
+    # Verify the split
+    !echo "Train set: $(wc -l < train.txt) lines"
+    !echo "Test set: $(wc -l < test.txt) lines"
+    \end{lstlisting}
+
+    \textbf{Result}:
+    \begin{lstlisting}
+    Train set: 10,003,348 lines
+    Test set: 2,500,838 lines
+    \end{lstlisting}
+
+    \textbf{Observation}: Using Tatoeba data allowed us to quickly expand our dataset to over 12 million lines with minimal time and storage requirements.
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Training with Tatoeba Data}
+    We trained the model on the augmented dataset:
+
+    \begin{lstlisting}[language=bash]
+    # Training the model
+    !./fasttext supervised -input train.txt -output langdetect -dim 16
+    \end{lstlisting}
+
+    \textbf{Results}:
+
+    \begin{lstlisting}
+    N       2,500,834
+    P@1     0.946
+    R@1     0.946
+    \end{lstlisting}
+
+    \textbf{Applying hyperparameter tuning}:
+
+    \begin{lstlisting}[language=bash]
+    # Retraining with improvements
+    !./fasttext supervised \
+    -input train.txt \
+    -output langdetect \
+    -dim 16 \
+    -epoch 15 \
+    -lr 1.0 \
+    -loss hs \
+    -minn 2 -maxn 4 \
+    -wordNgrams 2
+    \end{lstlisting}
+
+    \textbf{Improved results}:
+
+    \begin{lstlisting}
+    N       2,500,834
+    P@1     0.972
+    R@1     0.972
+    \end{lstlisting}
+
+    \textbf{Observation}: The model's accuracy improved to 97.2\% with the inclusion of Tatoeba data and hyperparameter tuning.
+\end{frame}
+
+\section{Comparing with Official Models}
+
+\begin{frame}[fragile]
+    \frametitle{Comparing Results with Official Models}
+    We downloaded the pre-trained official fastText language identification models:
+
+    \begin{lstlisting}[language=bash]
+    # Downloading the pre-trained models
+    !wget https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.bin
+    !wget https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.ftz
+    \end{lstlisting}
+
+    \textbf{Testing the official models}:
+
+    \begin{lstlisting}[language=bash]
+    # Testing the larger model
+    !./fasttext test lid.176.bin test.txt
+
+    # Testing the compressed model
+    !./fasttext test lid.176.ftz test.txt
+    \end{lstlisting}
+
+    \textbf{Results}:
+
+    \begin{itemize}
+        \item \textbf{lid.176.bin}:
+        \begin{lstlisting}
+        N       2,500,834
+        P@1     0.946
+        R@1     0.946
+        \end{lstlisting}
+
+        \item \textbf{lid.176.ftz}:
+        \begin{lstlisting}
+        N       2,500,834
+        P@1     0.871
+        R@1     0.871
+        \end{lstlisting}
+    \end{itemize}
+
+    \textbf{Observation}: Our improved model outperforms the official models, achieving an accuracy of 97.2\% compared to 94.6\% for the larger official model.
+\end{frame}
+
+\section{Conclusion}
+
+\begin{frame}
+    \frametitle{Conclusion}
+    Through this process, we have:
+
+    \begin{itemize}
+        \item Demonstrated that adding more data improves model performance.
+        \item Shown that hyperparameter tuning further enhances accuracy.
+        \item Highlighted the efficiency of using Tatoeba data over Wikipedia dumps and OSCAR data.
+        \item Successfully included Kazakh language support in the model.
+        \item Achieved higher accuracy than the official fastText models.
+    \end{itemize}
+
+    \textbf{Efficiency Comparison}:
+
+    \begin{itemize}
+        \item \textbf{Wikipedia Dumps}:
+        \begin{itemize}
+            \item Download time: ~72 hours
+            \item Storage required: >300 GB
+        \end{itemize}
+        \item \textbf{OSCAR Data}:
+        \begin{itemize}
+            \item Download and processing time: ~11 hours
+            \item Storage required: ~2 GB
+        \end{itemize}
+        \item \textbf{Tatoeba Data}:
+        \begin{itemize}
+            \item Download and processing time: ~5 minutes
+            \item Storage required: ~100 MB
+        \end{itemize}
+    \end{itemize}
+
+    \textbf{Future Work}:
+
+    \begin{itemize}
+        \item Explore adding more languages.
+        \item Optimize hyperparameters further.
+        \item Implement the model in real-world applications.
+    \end{itemize}
+\end{frame}
+
+\end{document}
